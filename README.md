@@ -29,6 +29,24 @@ The marketplace lives at <http://localhost:8000/marketplace> and shares the
 same process/port — no separate server to run. Its SQLite database is created
 on first startup at `data/marketplace.db` (gitignored).
 
+## Configuration
+
+Two optional secrets, both env vars, both gate a feature that simply reports
+itself as "not enabled" when unset — nothing breaks without them:
+
+```sh
+cp .env.example .env    # then fill in what you want
+```
+
+| Var | Enables | Get one |
+|---|---|---|
+| `ABUSECH_AUTH_KEY` | URLhaus malware-hosting check | <https://auth.abuse.ch/> (free) |
+| `ADMIN_TOKEN` | `POST /api/admin/users/{id}/verify` — toggles a seller's verified badge | pick any long random string |
+
+`app/main.py` loads `.env` via `python-dotenv` before anything else runs, so
+`./run.sh` picks it up automatically — no need to export the vars in your
+shell. `.env` is gitignored; `.env.example` is the checked-in template.
+
 ## What it checks
 
 | Check | Source | Signal | Keyless? |

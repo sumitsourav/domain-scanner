@@ -7,6 +7,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env")  # must run before any module reads os.environ
+
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +21,7 @@ from .domains import normalize_domain
 from .marketplace import router as marketplace_router
 from .scanning import run_full_scan
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+STATIC_DIR = ROOT_DIR / "static"
 
 app = FastAPI(title="Domain Risk Scanner",
               description="Available ≠ safe: pre-purchase risk analysis for domain names, "
