@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domain Marketplace — Trusted P2P Reselling</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<nav class="top">
+  <a class="brand" href="/">Domain Risk Scanner</a>
+  <span class="links" style="display:flex"><a href="/">Scanner</a><a class="active" href="/marketplace">Marketplace</a></span>
+  <span class="auth" id="navAuth"></span>
+</nav>
+<div class="wrap wide">
+  <header>
+    <h1>Domain Marketplace</h1>
+    <p class="tag">Every listing here carries a full risk report, run by the same scanner on this site. Buy and sell with the history already on the table.</p>
+  </header>
+
+  <!-- ============ BROWSE ============ -->
+  <section id="view-browse">
+    <form id="filterForm" style="margin-bottom:20px">
+      <input type="text" id="fQ" placeholder="Search domain…" style="flex:2;min-width:180px">
+      <select id="fVerdict" style="min-width:150px">
+        <option value="">Any risk level</option>
+        <option value="LOW">LOW risk only</option>
+        <option value="MODERATE">MODERATE or below</option>
+        <option value="HIGH">HIGH or below</option>
+      </select>
+      <input type="number" id="fMaxPrice" placeholder="Max price $" style="width:140px">
+      <button type="submit">Filter</button>
+      <button type="button" class="ghost" id="sellBtn">+ List a domain</button>
+    </form>
+    <div id="listingGrid" class="listing-grid"></div>
+    <div id="browseEmpty" class="empty-state" style="display:none">No listings match your filters yet.</div>
+  </section>
+
+  <!-- ============ LISTING DETAIL ============ -->
+  <section id="view-detail" style="display:none">
+    <a href="#/" style="font-size:14px">← Back to listings</a>
+    <div id="detailBody" style="margin-top:16px"></div>
+  </section>
+
+  <!-- ============ SELL ============ -->
+  <section id="view-sell" style="display:none">
+    <a href="#/" style="font-size:14px">← Back to listings</a>
+    <div class="card" style="max-width:520px;margin-top:16px">
+      <h2>List a domain</h2>
+      <p class="note" style="margin-top:0">We'll run the full risk scan now and attach it to your listing — this takes 10–25 seconds.</p>
+      <form id="sellForm">
+        <label>Domain</label>
+        <input type="text" id="sDomain" placeholder="brandable-name.com" required style="width:100%">
+        <label>Asking price (USD, optional)</label>
+        <input type="number" id="sPrice" min="0" placeholder="Leave blank for “make an offer”" style="width:100%">
+        <label>Description (optional)</label>
+        <textarea id="sDescription" placeholder="Traffic, backlink profile, why you're selling…"></textarea>
+        <div id="sellError" class="field-error"></div>
+        <button type="submit" id="sellSubmit" style="width:100%;margin-top:16px">Scan &amp; list</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ SELLER PROFILE ============ -->
+  <section id="view-seller" style="display:none">
+    <a href="#/" style="font-size:14px">← Back to listings</a>
+    <div id="sellerBody" style="margin-top:16px"></div>
+  </section>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section id="view-dashboard" style="display:none">
+    <div class="tabs">
+      <button id="tabListings" class="active">My Listings</button>
+      <button id="tabOffers">My Offers</button>
+    </div>
+    <div id="dashListings"></div>
+    <div id="dashOffers" style="display:none"></div>
+  </section>
+</div>
+
+<script src="/static/auth.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtPrice = p => p == null ? '<span class="price none">Make an offer</span>' : `<span class="price">$${Number(p).toLocaleString()}</span>`;
+const VERDICT_COLOR = { LOW: 'var(--good)', MODERATE: 'var(--warning)', HIGH: 'var(--serious)', SEVERE: 'var(--critical)' };
+const VERDICT_RANK = { LOW: 0, MODERATE: 1, HIGH: 2, SEVERE: 3 };
+
+function verdictTag(v) {
+  return `<span class="verdict-tag" style="background:${VERDICT_COLOR[v] || 'var(--muted)'}">${esc(v)}</span>`;
+}
+function starRow(avg, count) {
+  if (avg == null) return '<span class="stars" style="color:var(--muted)">No ratings yet</span>';
+  const full = Math.round(avg);
+  let s = '<span class="stars">';
+  for (let i = 1; i <= 5; i++) s += i <= full ? '★' : '<span class="empty">★</span>';
+  s += `</span> <span class="note" style="margin:0">${avg} (${count})</span>`;
+  return s;
+}
+function sellerLine(seller) {
+  return `<div class="seller-line">
+    <a href="#/seller/${seller.id}" onclick="event.stopPropagation()">${esc(seller.display_name)}</a>
+    ${seller.verified ? '<span class="badge-verified">✓ verified</span>' : ''}
+    ${starRow(seller.avg_stars, seller.rating_count)}
+  </div>`;
+}
+// Same content, but plain text instead of a nested <a> — for use inside
+// a listing-card <a>, since HTML doesn't allow anchors to nest (a nested
+// <a> forces the browser to auto-close the outer one, splitting the card).
+function sellerLineStatic(seller) {
+  return `<div class="seller-line">
+    <span>${esc(seller.display_name)}</span>
+    ${seller.verified ? '<span class="badge-verified">✓ verified</span>' : ''}
+    ${starRow(seller.avg_stars, seller.rating_count)}
+  </div>`;
+}
+
+async function api(path, opts) {
+  const resp = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.detail || `HTTP ${resp.status}`);
+  return data;
+}
+
+// ---------------- router ----------------
+const views = ['browse', 'detail', 'sell', 'seller', 'dashboard'];
+function showView(name) {
+  views.forEach(v => $(`view-${v}`).style.display = v === name ? 'block' : 'none');
+}
+
+async function route() {
+  const hash = location.hash.replace(/^#\/?/, '');
+  const [seg, arg] = hash.split('/');
+  if (!seg) { showView('browse'); await renderBrowse(); }
+  else if (seg === 'listing' && arg) { showView('detail'); await renderDetail(Number(arg)); }
+  else if (seg === 'seller' && arg) { showView('seller'); await renderSeller(Number(arg)); }
+  else if (seg === 'sell') {
+    if (!Auth.user) { location.hash = '#/'; Auth.open('login'); return; }
+    showView('sell');
+  }
+  else if (seg === 'dashboard') {
+    if (!Auth.user) { location.hash = '#/'; Auth.open('login'); return; }
+    showView('dashboard');
+    await renderDashboardListings();
+  }
+  else { showView('browse'); await renderBrowse(); }
+}
+window.addEventListener('hashchange', route);
+
+// ---------------- browse ----------------
+async function renderBrowse() {
+  const params = new URLSearchParams();
+  if ($('fQ').value.trim()) params.set('q', $('fQ').value.trim());
+  if ($('fMaxPrice').value) params.set('max_price', $('fMaxPrice').value);
+  const rows = await api('/api/listings?' + params.toString());
+  const maxRank = VERDICT_RANK[$('fVerdict').value] ?? 3;
+  const filtered = $('fVerdict').value ? rows.filter(r => VERDICT_RANK[r.risk_verdict] <= maxRank) : rows;
+  $('browseEmpty').style.display = filtered.length ? 'none' : 'block';
+  $('listingGrid').innerHTML = filtered.map(r => `
+    <a class="listing-card" href="#/listing/${r.id}">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+        <div class="domain">${esc(r.domain)}</div>
+        ${verdictTag(r.risk_verdict)}
+      </div>
+      ${fmtPrice(r.price_usd)}
+      ${r.description ? `<div class="note" style="margin-top:6px">${esc(r.description.slice(0,90))}${r.description.length>90?'…':''}</div>` : ''}
+      ${sellerLineStatic(r.seller)}
+    </a>`).join('');
+}
+$('filterForm').addEventListener('submit', e => { e.preventDefault(); renderBrowse(); });
+$('sellBtn').addEventListener('click', () => {
+  if (!Auth.user) { Auth.open('login'); return; }
+  location.hash = '#/sell';
+});
+
+// ---------------- listing detail ----------------
+async function renderDetail(id) {
+  $('detailBody').innerHTML = '<p class="note">Loading…</p>';
+  let listing;
+  try { listing = await api(`/api/listings/${id}`); }
+  catch (err) { $('detailBody').innerHTML = `<p class="field-error" style="display:block">${esc(err.message)}</p>`; return; }
+
+  const scan = listing.scan;
+  let html = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+        <div>
+          <h2 style="font-size:22px;text-transform:none;letter-spacing:0;color:var(--ink);margin-bottom:6px">${esc(listing.domain)}</h2>
+          ${sellerLine(listing.seller)}
+        </div>
+        <div style="text-align:right">
+          ${fmtPrice(listing.price_usd)}
+          <div style="margin-top:6px">${verdictTag(listing.risk_verdict)} <span class="note" style="margin:0">score ${listing.risk_score}/100</span></div>
+        </div>
+      </div>
+      ${listing.description ? `<p style="margin-top:14px">${esc(listing.description)}</p>` : ''}
+      <p class="note">Status: <strong>${esc(listing.status)}</strong> · scanned ${listing.scanned_at ? new Date(listing.scanned_at).toLocaleDateString() : '—'} ·
+        <a href="/?domain=${encodeURIComponent(listing.domain)}" target="_blank">view full scan report ↗</a></p>
+    </div>`;
+
+  if (scan) {
+    html += `<div class="card"><h2>Risk factors</h2>`;
+    if (scan.factors.length) {
+      html += scan.factors.map(f => `<div class="factor"><div class="pts" style="background:${f.points>=30?'var(--critical)':'var(--serious)'};color:#fff">+${f.points}</div><div><div class="what">${esc(f.label)}</div><div class="why">${esc(f.detail)}</div></div></div>`).join('');
+    } else {
+      html += `<span class="pill clean">✓ No risk factors detected</span>`;
+    }
+    html += `</div>`;
+  }
+
+  if (listing.is_mine) {
+    html += `<div class="card" id="ownerPanel"><h2>Manage this listing</h2><div id="ownerActions"></div><div id="offersList" style="margin-top:10px"></div></div>`;
+  } else if (Auth.user && listing.status === 'active') {
+    html += `<div class="card">
+      <h2>Make an offer</h2>
+      <div id="offerError" class="field-error"></div>
+      <form id="offerForm">
+        <label>Your offer (USD, optional)</label>
+        <input type="number" id="oAmount" min="0" style="width:100%">
+        <label>Message</label>
+        <textarea id="oMessage" placeholder="Introduce yourself, ask questions…"></textarea>
+        <button type="submit" style="width:100%;margin-top:14px">Send offer</button>
+      </form>
+    </div>`;
+  } else if (!Auth.user && listing.status === 'active') {
+    html += `<div class="card"><button id="offerSignin">Sign in to make an offer</button></div>`;
+  } else if (listing.status !== 'active') {
+    html += `<div class="card"><span class="pill unknown">This listing is ${esc(listing.status)} and no longer accepting offers.</span></div>`;
+  }
+
+  $('detailBody').innerHTML = html;
+
+  if (listing.is_mine) await renderOwnerPanel(listing);
+  if ($('offerForm')) {
+    $('offerForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        await api(`/api/listings/${id}/offers`, { method: 'POST', body: JSON.stringify({
+          amount_usd: $('oAmount').value ? Number($('oAmount').value) : null,
+          message: $('oMessage').value || null,
+        })});
+        await renderDetail(id);
+      } catch (err) {
+        $('offerError').textContent = err.message;
+        $('offerError').style.display = 'block';
+      }
+    });
+  }
+  if ($('offerSignin')) $('offerSignin').addEventListener('click', () => Auth.open('login'));
+}
+
+async function renderOwnerPanel(listing) {
+  const actions = $('ownerActions');
+  let btns = `<button class="sm ghost" id="rescanBtn">Rescan</button>`;
+  if (listing.status === 'active') btns += ` <button class="sm danger" id="withdrawBtn">Withdraw listing</button>`;
+  actions.innerHTML = btns;
+  $('rescanBtn').addEventListener('click', async () => {
+    $('rescanBtn').disabled = true; $('rescanBtn').textContent = 'Scanning…';
+    await api(`/api/listings/${listing.id}/rescan`, { method: 'POST' });
+    await renderDetail(listing.id);
+  });
+  if ($('withdrawBtn')) $('withdrawBtn').addEventListener('click', async () => {
+    if (!confirm('Withdraw this listing?')) return;
+    await api(`/api/listings/${listing.id}/withdraw`, { method: 'POST' });
+    await renderDetail(listing.id);
+  });
+
+  const offers = await api(`/api/listings/${listing.id}/offers`);
+  $('offersList').innerHTML = offers.length
+    ? `<h2 style="margin-top:16px">Offers (${offers.length})</h2>` + offers.map(offerRow).join('')
+    : `<p class="note">No offers yet.</p>`;
+  offers.forEach(o => wireOfferButtons(o, () => renderDetail(listing.id)));
+}
+
+function offerRow(o) {
+  let actions = '';
+  if (o.status === 'pending') {
+    actions = `<button class="sm" data-accept="${o.id}">Accept</button> <button class="sm ghost" data-reject="${o.id}">Reject</button>`;
+  } else if (o.status === 'accepted') {
+    actions = `<button class="sm" data-complete="${o.id}">Mark trade completed</button>`;
+    if (o.counterpart_email) actions += ` <span class="note" style="margin:0">contact: ${esc(o.counterpart_email)}</span>`;
+  } else if (o.status === 'completed') {
+    actions = `<span data-rate="${o.id}"></span>`;
+  }
+  return `<div class="row" style="display:block;padding:12px 0">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div><strong>${esc(o.buyer.display_name)}</strong> ${o.amount_usd != null ? `— $${Number(o.amount_usd).toLocaleString()}` : ''}
+        <span class="note" style="margin:0"> · ${esc(o.status)}</span></div>
+    </div>
+    ${o.message ? `<div class="note" style="margin-top:4px">"${esc(o.message)}"</div>` : ''}
+    <div style="margin-top:8px">${actions}</div>
+  </div>`;
+}
+
+function wireOfferButtons(o, onDone) {
+  const accept = document.querySelector(`[data-accept="${o.id}"]`);
+  const reject = document.querySelector(`[data-reject="${o.id}"]`);
+  const complete = document.querySelector(`[data-complete="${o.id}"]`);
+  const rateSlot = document.querySelector(`[data-rate="${o.id}"]`);
+  if (accept) accept.addEventListener('click', async () => { await api(`/api/offers/${o.id}/accept`, { method: 'POST' }); onDone(); });
+  if (reject) reject.addEventListener('click', async () => { await api(`/api/offers/${o.id}/reject`, { method: 'POST' }); onDone(); });
+  if (complete) complete.addEventListener('click', async () => {
+    if (!confirm('Confirm the domain transfer and payment have actually happened off-platform?')) return;
+    await api(`/api/offers/${o.id}/complete`, { method: 'POST' }); onDone();
+  });
+  if (rateSlot) renderRateWidget(rateSlot, o.id, onDone);
+}
+
+function renderRateWidget(el, offerId, onDone) {
+  el.innerHTML = `<span class="note" style="margin:0">Rate this trade: </span>` +
+    [1,2,3,4,5].map(n => `<button class="sm ghost" style="padding:4px 8px" data-star="${n}">${n}★</button>`).join('');
+  el.querySelectorAll('[data-star]').forEach(btn => btn.addEventListener('click', async () => {
+    try {
+      await api(`/api/offers/${offerId}/rate`, { method: 'POST', body: JSON.stringify({ stars: Number(btn.dataset.star) }) });
+      el.innerHTML = '<span class="note" style="margin:0">Thanks for rating!</span>';
+    } catch (err) {
+      el.innerHTML = `<span class="note" style="margin:0">${esc(err.message)}</span>`;
+    }
+  }));
+}
+
+// ---------------- seller profile ----------------
+async function renderSeller(id) {
+  $('sellerBody').innerHTML = '<p class="note">Loading…</p>';
+  let profile;
+  try { profile = await api(`/api/users/${id}`); }
+  catch (err) { $('sellerBody').innerHTML = `<p class="field-error" style="display:block">${esc(err.message)}</p>`; return; }
+
+  let html = `<div class="card">
+      <h2 style="font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink)">${esc(profile.display_name)}
+        ${profile.verified ? '<span class="badge-verified">✓ verified</span>' : ''}</h2>
+      <div style="margin-top:6px">${starRow(profile.avg_stars, profile.rating_count)}</div>
+      <p class="note">Member since ${new Date(profile.created_at).toLocaleDateString()}</p>
+    </div>
+    <h2 style="font-size:14px;color:var(--muted);margin:20px 0 10px">Active listings (${profile.active_listings.length})</h2>
+    <div class="listing-grid">${profile.active_listings.map(r => `
+      <a class="listing-card" href="#/listing/${r.id}">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+          <div class="domain">${esc(r.domain)}</div>
+          ${verdictTag(r.risk_verdict)}
+        </div>
+        ${fmtPrice(r.price_usd)}
+      </a>`).join('') || '<p class="note">No active listings.</p>'}</div>`;
+  $('sellerBody').innerHTML = html;
+}
+
+// ---------------- sell ----------------
+$('sellForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('sellError').style.display = 'none';
+  $('sellSubmit').disabled = true; $('sellSubmit').textContent = 'Scanning… (10–25s)';
+  try {
+    const listing = await api('/api/listings', { method: 'POST', body: JSON.stringify({
+      domain: $('sDomain').value.trim(),
+      price_usd: $('sPrice').value ? Number($('sPrice').value) : null,
+      description: $('sDescription').value || null,
+    })});
+    location.hash = `#/listing/${listing.id}`;
+  } catch (err) {
+    $('sellError').textContent = err.message;
+    $('sellError').style.display = 'block';
+  } finally {
+    $('sellSubmit').disabled = false; $('sellSubmit').textContent = 'Scan & list';
+  }
+});
+
+// ---------------- dashboard ----------------
+$('tabListings').addEventListener('click', () => {
+  $('tabListings').classList.add('active'); $('tabOffers').classList.remove('active');
+  $('dashListings').style.display = 'block'; $('dashOffers').style.display = 'none';
+  renderDashboardListings();
+});
+$('tabOffers').addEventListener('click', () => {
+  $('tabOffers').classList.add('active'); $('tabListings').classList.remove('active');
+  $('dashOffers').style.display = 'block'; $('dashListings').style.display = 'none';
+  renderDashboardOffers();
+});
+
+async function renderDashboardListings() {
+  const rows = await api('/api/listings/mine');
+  $('dashListings').innerHTML = rows.length ? rows.map(r => `
+    <a class="listing-card" href="#/listing/${r.id}" style="display:block;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div class="domain" style="font-size:15px">${esc(r.domain)}</div>
+        ${verdictTag(r.risk_verdict)}
+      </div>
+      <div class="note">${esc(r.status)} · ${fmtPrice(r.price_usd)}</div>
+    </a>`).join('') : `<div class="empty-state">No listings yet. <a href="#/sell">List a domain →</a></div>`;
+}
+
+async function renderDashboardOffers() {
+  const rows = await api('/api/offers/mine');
+  $('dashOffers').innerHTML = rows.length ? rows.map(o => `
+    <div class="card">
+      <a href="#/listing/${o.listing.id}" style="font-weight:700">${esc(o.listing.domain)}</a>
+      <span class="note" style="margin-left:8px">${esc(o.status)}${o.amount_usd != null ? ' · $' + Number(o.amount_usd).toLocaleString() : ''}</span>
+      <div style="margin-top:8px" data-offer-actions="${o.id}"></div>
+    </div>`).join('') : `<div class="empty-state">No offers yet. <a href="#/">Browse listings →</a></div>`;
+  rows.forEach(o => {
+    const slot = document.querySelector(`[data-offer-actions="${o.id}"]`);
+    if (o.status === 'pending') {
+      slot.innerHTML = `<button class="sm ghost" data-withdraw="${o.id}">Withdraw offer</button>`;
+      slot.querySelector('[data-withdraw]').addEventListener('click', async () => {
+        await api(`/api/offers/${o.id}/withdraw`, { method: 'POST' }); renderDashboardOffers();
+      });
+    } else if (o.status === 'accepted') {
+      slot.innerHTML = `<button class="sm" data-complete="${o.id}">Mark trade completed</button>` +
+        (o.counterpart_email ? ` <span class="note" style="margin:0">contact: ${esc(o.counterpart_email)}</span>` : '');
+      slot.querySelector('[data-complete]').addEventListener('click', async () => {
+        if (!confirm('Confirm the domain transfer and payment have actually happened off-platform?')) return;
+        await api(`/api/offers/${o.id}/complete`, { method: 'POST' }); renderDashboardOffers();
+      });
+    } else if (o.status === 'completed') {
+      renderRateWidget(slot, o.id, renderDashboardOffers);
+    }
+  });
+}
+
+// ---------------- boot ----------------
+// support /marketplace?q=example.com linking straight into a pre-filled search
+const presetQ = new URLSearchParams(location.search).get('q');
+if (presetQ) $('fQ').value = presetQ;
+
+Auth.init(() => route());
+route();
+</script>
+</body>
+</html>

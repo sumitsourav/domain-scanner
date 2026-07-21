@@ -5,6 +5,9 @@ scammy history, or trademark landmines. This app scans a candidate domain across
 spam blacklists, prior-use archives, trademark heuristics, and email-reputation
 signals, then hands you a single **0–100 risk score** before you buy.
 
+It also includes a **P2P marketplace** for reselling domains with that risk
+report attached to every listing — see [Marketplace](#marketplace) below.
+
 ## Run it
 
 ```sh
@@ -21,6 +24,10 @@ python3 -m venv .venv
 
 Open <http://localhost:8000>, type a domain, hit **Scan**.
 API: `GET /api/scan?domain=example.com` returns the full JSON report.
+
+The marketplace lives at <http://localhost:8000/marketplace> and shares the
+same process/port — no separate server to run. Its SQLite database is created
+on first startup at `data/marketplace.db` (gitignored).
 
 ## What it checks
 
@@ -65,11 +72,50 @@ correlate with prior use, not with risk direction) and isn't scored.
   lookups (unlike the DNSBL zones above, they aren't subject to anti-abuse
   blocking of public resolvers).
 
+## Marketplace
+
+A P2P domain reselling marketplace built on top of the scanner, at `/marketplace`.
+Three trust mechanisms, no in-app payments:
+
+1. **Risk score gate** — every listing is created by running the exact same
+   scan pipeline as `/api/scan`, cached on the listing (`GET /api/listings/{id}`
+   includes the full report) and rerunnable via a "Rescan" button. Full
+   disclosure, not a score threshold — a MODERATE-risk domain can still be
+   listed, but never unscanned.
+2. **Seller reputation** — 1–5 star ratings, unlocked only once a trade is
+   explicitly marked *completed* (not merely "offer accepted" — an agreement
+   can still fall through before the off-platform transfer happens).
+3. **Manual verification badge** — an operator-toggled "✓ verified" badge via
+   `POST /api/admin/users/{id}/verify` with header `X-Admin-Token`, gated by
+   the `ADMIN_TOKEN` env var (same pattern as `ABUSECH_AUTH_KEY` — unset means
+   disabled, returns 404).
+
+**Trade flow:** sign up → list a domain (auto-scanned) → buyers browse/filter
+by risk verdict and price → buyer submits an offer → seller accepts (this
+reveals both parties' emails so they can finalize the domain transfer and
+payment off-platform — registrar push, escrow.com, wire, whatever they agree)
+→ either party marks the trade *completed* once the transfer actually
+happened → both sides can now rate each other.
+
+**No money moves through this app.** Payment/escrow is deliberately out of
+scope — real payment handling needs a licensed processor (Stripe Connect,
+Escrow.com) and carries money-transmission compliance weight well beyond a
+local tool. See Roadmap.
+
+**Stack:** stdlib `sqlite3` (no ORM — five tables don't need one), PBKDF2-HMAC-SHA256
+password hashing (`hashlib`, no bcrypt dependency), opaque server-side session
+tokens in an httponly/SameSite=Lax cookie (revocable on logout, unlike a JWT).
+Not hardened for public internet exposure: no rate limiting on login/signup,
+no email verification, no CSRF token beyond the cookie's SameSite policy. Fine
+for local/trusted-network use; harden before deploying publicly.
+
 ## Roadmap
 
 - Additional keyed providers behind env vars: Google Safe Browsing, VirusTotal,
   SecurityTrails passive DNS
 - Real trademark search (USPTO TSDR API key)
 - Bulk CSV scanning for portfolio triage, result caching/persistence
+- Marketplace: escrow-backed payments via a licensed processor, email
+  verification, rate limiting, CSRF tokens, full-text search
 
 *Heuristic screening tool — not legal advice, not a deliverability guarantee.*

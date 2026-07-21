@@ -4,144 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Domain Risk Scanner — Available ≠ Safe</title>
-<style>
-  :root {
-    color-scheme: light;
-    --page:           #f9f9f7;
-    --surface:        #fcfcfb;
-    --ink:            #0b0b0b;
-    --ink-2:          #52514e;
-    --muted:          #898781;
-    --grid:           #e1e0d9;
-    --baseline:       #c3c2b7;
-    --border:         rgba(11,11,11,0.10);
-    --accent:         #2a78d6;
-    --good:           #0ca30c;
-    --warning:        #fab219;
-    --serious:        #ec835a;
-    --critical:       #d03b3b;
-    --good-text:      #006300;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --page:     #0d0d0d;
-      --surface:  #1a1a19;
-      --ink:      #ffffff;
-      --ink-2:    #c3c2b7;
-      --muted:    #898781;
-      --grid:     #2c2c2a;
-      --baseline: #383835;
-      --border:   rgba(255,255,255,0.10);
-      --accent:   #3987e5;
-      --good-text:#0ca30c;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--page); color: var(--ink);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.5;
-  }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
-
-  header h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
-  header p.tag { color: var(--ink-2); margin: 0 0 28px; font-size: 15px; }
-  header .neq { color: var(--critical); font-weight: 700; }
-
-  form { display: flex; gap: 10px; margin-bottom: 32px; }
-  input[type=text] {
-    flex: 1; font-size: 16px; padding: 12px 14px; border-radius: 10px;
-    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
-    outline: none;
-  }
-  input[type=text]:focus { border-color: var(--accent); }
-  button {
-    font-size: 15px; font-weight: 600; padding: 12px 22px; border-radius: 10px;
-    border: none; background: var(--accent); color: #fff; cursor: pointer;
-  }
-  button:disabled { opacity: 0.5; cursor: default; }
-
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 14px; padding: 20px 22px; margin-bottom: 14px;
-  }
-  .card h2 {
-    font-size: 12px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--muted); margin: 0 0 12px;
-  }
-
-  /* hero */
-  .hero { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
-  .hero .num { font-size: 64px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
-  .hero .num small { font-size: 22px; color: var(--muted); font-weight: 500; }
-  .hero .side { flex: 1; min-width: 240px; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 7px; font-weight: 700;
-    font-size: 14px; padding: 4px 12px; border-radius: 999px; color: #fff;
-  }
-  .advice { color: var(--ink-2); margin: 10px 0 14px; font-size: 15px; }
-
-  .meter { position: relative; height: 10px; border-radius: 5px; overflow: visible;
-           background: linear-gradient(to right,
-             var(--good) 0 20%, var(--warning) 20% 45%,
-             var(--serious) 45% 70%, var(--critical) 70% 100%); opacity: 0.95; }
-  .meter .pin {
-    position: absolute; top: -5px; width: 4px; height: 20px; border-radius: 2px;
-    background: var(--ink); box-shadow: 0 0 0 2px var(--surface);
-    transform: translateX(-50%); transition: left 0.6s ease;
-  }
-  .meter-labels { display: flex; justify-content: space-between; margin-top: 6px;
-                  font-size: 11px; color: var(--muted); }
-
-  .factor { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--grid); }
-  .factor:first-of-type { border-top: none; }
-  .factor .pts {
-    min-width: 46px; text-align: center; font-weight: 700; font-size: 13px;
-    border-radius: 8px; padding: 2px 0; height: fit-content;
-    font-variant-numeric: tabular-nums;
-  }
-  .factor .what { font-weight: 600; font-size: 14px; }
-  .factor .why  { color: var(--ink-2); font-size: 13px; }
-
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
-  .grid2 .card { margin-bottom: 0; }
-
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 14px; }
-  .kv dt { color: var(--muted); }
-  .kv dd { margin: 0; overflow-wrap: anywhere; }
-
-  .row { display: flex; justify-content: space-between; align-items: baseline;
-         padding: 7px 0; border-top: 1px solid var(--grid); font-size: 14px; }
-  .row:first-of-type { border-top: none; }
-  .row .detail { color: var(--ink-2); font-size: 13px; }
-  .pill { font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
-  .pill.listed  { color: var(--critical); }
-  .pill.clean   { color: var(--good-text); }
-  .pill.unknown { color: var(--muted); }
-
-  .years { display: flex; gap: 3px; flex-wrap: wrap; margin: 10px 0 4px; }
-  .yr { width: 22px; text-align: center; font-size: 9px; color: var(--muted); }
-  .yr i { display: block; height: 22px; border-radius: 4px 4px 2px 2px;
-          background: var(--accent); margin-bottom: 3px; }
-  .yr.off i { background: var(--grid); }
-
-  .evidence { font-size: 12.5px; color: var(--ink-2); margin: 4px 0 0;
-              padding-left: 18px; overflow-wrap: anywhere; }
-  .cat { font-weight: 700; font-size: 13px; color: var(--critical); margin-top: 10px; }
-
-  a { color: var(--accent); }
-  .links { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 14px; }
-  .note { color: var(--muted); font-size: 12.5px; margin-top: 14px; }
-
-  #spinner { display: none; color: var(--ink-2); font-size: 15px; padding: 30px 0; }
-  #spinner .dots::after { content: ""; animation: d 1.4s steps(4) infinite; }
-  @keyframes d { 0% {content:"";} 25% {content:".";} 50% {content:"..";} 75% {content:"...";} }
-  #error { display: none; color: var(--critical); font-weight: 600; padding: 14px 0; }
-  #results { display: none; }
-</style>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<nav class="top">
+  <a class="brand" href="/">Domain Risk Scanner</a>
+  <span class="links" style="display:flex"><a class="active" href="/">Scanner</a><a href="/marketplace">Marketplace</a></span>
+  <span class="auth" id="navAuth"></span>
+</nav>
 <div class="wrap">
   <header>
     <h1>Domain Risk Scanner</h1>
@@ -157,6 +27,8 @@
   <div id="error"></div>
 
   <div id="results">
+    <div id="availBanner" class="avail-banner"></div>
+
     <div class="card">
       <h2>Risk score</h2>
       <div class="hero">
@@ -231,6 +103,29 @@ $('form').addEventListener('submit', async e => {
 });
 
 function render(d) {
+  // availability banner — "can I even buy this" comes before "is it risky"
+  const av = d.checks.availability;
+  const banner = $('availBanner');
+  banner.className = 'avail-banner';
+  if (av.status !== 'ok') {
+    banner.classList.add('is-unknown');
+    banner.innerHTML = `<div class="icon" style="background:var(--muted)">?</div>
+      <div><p class="headline">Availability unknown</p>
+      <p class="detail">${esc(av.error || 'The registry lookup failed.')}</p></div>`;
+  } else if (av.available) {
+    banner.classList.add('is-available');
+    banner.innerHTML = `<div class="icon" style="background:var(--good)">✓</div>
+      <div><p class="headline">Available — you can register ${esc(d.domain)} today</p>
+      <p class="detail">No registry record exists for this domain. Being available doesn't mean it's safe — see the risk score below.</p></div>`;
+  } else {
+    banner.classList.add('is-registered');
+    const age = av.age_years != null ? ` (${av.age_years} yrs)` : '';
+    const expiry = av.expires ? ` · expires ${av.expires.slice(0,10)}` : '';
+    banner.innerHTML = `<div class="icon" style="background:var(--critical)">✕</div>
+      <div><p class="headline">Already registered — not available to buy directly</p>
+      <p class="detail">Owned via ${esc(av.registrar || 'an unknown registrar')}${av.registered ? ' since ' + esc(av.registered.slice(0,10)) + age : ''}${expiry}. You'd need to negotiate a purchase with the current owner, or check <a href="/marketplace?q=${encodeURIComponent(d.domain)}" target="_blank">the marketplace</a> in case it's listed for resale.</p></div>`;
+  }
+
   // hero
   $('score').textContent = d.score;
   const vs = VERDICT_STYLE[d.verdict] || VERDICT_STYLE.LOW;
@@ -420,5 +315,7 @@ if (preset) {
   $('form').requestSubmit();
 }
 </script>
+<script src="/static/auth.js"></script>
+<script>Auth.init();</script>
 </body>
 </html>
