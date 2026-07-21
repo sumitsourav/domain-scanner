@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domain Risk Scanner — Available ≠ Safe</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface:        #fcfcfb;
+    --ink:            #0b0b0b;
+    --ink-2:          #52514e;
+    --muted:          #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --accent:         #2a78d6;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --serious:        #ec835a;
+    --critical:       #d03b3b;
+    --good-text:      #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page:     #0d0d0d;
+      --surface:  #1a1a19;
+      --ink:      #ffffff;
+      --ink-2:    #c3c2b7;
+      --muted:    #898781;
+      --grid:     #2c2c2a;
+      --baseline: #383835;
+      --border:   rgba(255,255,255,0.10);
+      --accent:   #3987e5;
+      --good-text:#0ca30c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
+
+  header h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  header p.tag { color: var(--ink-2); margin: 0 0 28px; font-size: 15px; }
+  header .neq { color: var(--critical); font-weight: 700; }
+
+  form { display: flex; gap: 10px; margin-bottom: 32px; }
+  input[type=text] {
+    flex: 1; font-size: 16px; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+    outline: none;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  button {
+    font-size: 15px; font-weight: 600; padding: 12px 22px; border-radius: 10px;
+    border: none; background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px; margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin: 0 0 12px;
+  }
+
+  /* hero */
+  .hero { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+  .hero .num { font-size: 64px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+  .hero .num small { font-size: 22px; color: var(--muted); font-weight: 500; }
+  .hero .side { flex: 1; min-width: 240px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; font-weight: 700;
+    font-size: 14px; padding: 4px 12px; border-radius: 999px; color: #fff;
+  }
+  .advice { color: var(--ink-2); margin: 10px 0 14px; font-size: 15px; }
+
+  .meter { position: relative; height: 10px; border-radius: 5px; overflow: visible;
+           background: linear-gradient(to right,
+             var(--good) 0 20%, var(--warning) 20% 45%,
+             var(--serious) 45% 70%, var(--critical) 70% 100%); opacity: 0.95; }
+  .meter .pin {
+    position: absolute; top: -5px; width: 4px; height: 20px; border-radius: 2px;
+    background: var(--ink); box-shadow: 0 0 0 2px var(--surface);
+    transform: translateX(-50%); transition: left 0.6s ease;
+  }
+  .meter-labels { display: flex; justify-content: space-between; margin-top: 6px;
+                  font-size: 11px; color: var(--muted); }
+
+  .factor { display: flex; gap: 12px; padding: 9px 0; border-top: 1px solid var(--grid); }
+  .factor:first-of-type { border-top: none; }
+  .factor .pts {
+    min-width: 46px; text-align: center; font-weight: 700; font-size: 13px;
+    border-radius: 8px; padding: 2px 0; height: fit-content;
+    font-variant-numeric: tabular-nums;
+  }
+  .factor .what { font-weight: 600; font-size: 14px; }
+  .factor .why  { color: var(--ink-2); font-size: 13px; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+  .grid2 .card { margin-bottom: 0; }
+
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 14px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; overflow-wrap: anywhere; }
+
+  .row { display: flex; justify-content: space-between; align-items: baseline;
+         padding: 7px 0; border-top: 1px solid var(--grid); font-size: 14px; }
+  .row:first-of-type { border-top: none; }
+  .row .detail { color: var(--ink-2); font-size: 13px; }
+  .pill { font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+  .pill.listed  { color: var(--critical); }
+  .pill.clean   { color: var(--good-text); }
+  .pill.unknown { color: var(--muted); }
+
+  .years { display: flex; gap: 3px; flex-wrap: wrap; margin: 10px 0 4px; }
+  .yr { width: 22px; text-align: center; font-size: 9px; color: var(--muted); }
+  .yr i { display: block; height: 22px; border-radius: 4px 4px 2px 2px;
+          background: var(--accent); margin-bottom: 3px; }
+  .yr.off i { background: var(--grid); }
+
+  .evidence { font-size: 12.5px; color: var(--ink-2); margin: 4px 0 0;
+              padding-left: 18px; overflow-wrap: anywhere; }
+  .cat { font-weight: 700; font-size: 13px; color: var(--critical); margin-top: 10px; }
+
+  a { color: var(--accent); }
+  .links { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 14px; }
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 14px; }
+
+  #spinner { display: none; color: var(--ink-2); font-size: 15px; padding: 30px 0; }
+  #spinner .dots::after { content: ""; animation: d 1.4s steps(4) infinite; }
+  @keyframes d { 0% {content:"";} 25% {content:".";} 50% {content:"..";} 75% {content:"...";} }
+  #error { display: none; color: var(--critical); font-weight: 600; padding: 14px 0; }
+  #results { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Domain Risk Scanner</h1>
+    <p class="tag">Available <span class="neq">≠</span> safe. Check a domain's spam-blacklist status, prior-use history, trademark landmines, and email reputation — <em>before</em> you buy it.</p>
+  </header>
+
+  <form id="form">
+    <input type="text" id="domain" placeholder="e.g. brandable-name.com" autocomplete="off" spellcheck="false" required>
+    <button id="go" type="submit">Scan</button>
+  </form>
+
+  <div id="spinner">Scanning blacklists, archives, and registries<span class="dots"></span></div>
+  <div id="error"></div>
+
+  <div id="results">
+    <div class="card">
+      <h2>Risk score</h2>
+      <div class="hero">
+        <div class="num"><span id="score">0</span><small> /100</small></div>
+        <div class="side">
+          <span class="chip" id="verdict"></span>
+          <p class="advice" id="advice"></p>
+          <div class="meter"><div class="pin" id="pin" style="left:0%"></div></div>
+          <div class="meter-labels"><span>Low</span><span>Moderate</span><span>High</span><span>Severe</span></div>
+        </div>
+      </div>
+      <div id="factors" style="margin-top:18px"></div>
+      <p class="note" id="gaps" style="display:none"></p>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h2>Availability</h2><div id="avail"></div></div>
+      <div class="card"><h2>Email deliverability</h2><div id="deliv"></div></div>
+      <div class="card"><h2>Spam blacklists</h2><div id="bl"></div></div>
+      <div class="card"><h2>Malware hosting (URLhaus)</h2><div id="abuse"></div></div>
+      <div class="card"><h2>Mail infrastructure</h2><div id="mail"></div></div>
+      <div class="card"><h2>Trademark screen</h2><div id="tm"></div></div>
+    </div>
+
+    <div class="card" style="margin-top:14px"><h2>Prior-use history (Wayback Machine)</h2><div id="hist"></div></div>
+    <div class="card" style="margin-top:14px"><h2>Certificate Transparency — prior operator footprint</h2><div id="certs"></div></div>
+
+    <p class="note">Heuristic screening tool — not legal advice, and not a guarantee of deliverability. Blacklist data: Spamhaus, SURBL, URIBL, Barracuda, URLhaus. History: Internet Archive, crt.sh. <span id="elapsed"></span></p>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const VERDICT_STYLE = {
+  LOW:      { color: 'var(--good)',     icon: '✓' },
+  MODERATE: { color: 'var(--warning)',  icon: '▲' },
+  HIGH:     { color: 'var(--serious)',  icon: '▲' },
+  SEVERE:   { color: 'var(--critical)', icon: '✕' },
+};
+const DELIV_STYLE = {
+  GOOD:    { cls: 'clean',   icon: '✓' },
+  WATCH:   { cls: 'unknown', icon: '▲' },
+  POOR:    { cls: 'listed',  icon: '✕' },
+  UNKNOWN: { cls: 'unknown', icon: '?' },
+};
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const domain = $('domain').value.trim();
+  if (!domain) return;
+  const share = new URL(location.href);
+  share.searchParams.set('domain', domain);
+  history.replaceState(null, '', share);
+  $('go').disabled = true;
+  $('results').style.display = 'none';
+  $('error').style.display = 'none';
+  $('spinner').style.display = 'block';
+  try {
+    const resp = await fetch('/api/scan?domain=' + encodeURIComponent(domain));
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || ('HTTP ' + resp.status));
+    render(data);
+  } catch (err) {
+    $('error').textContent = '⚠ ' + err.message;
+    $('error').style.display = 'block';
+  } finally {
+    $('spinner').style.display = 'none';
+    $('go').disabled = false;
+  }
+});
+
+function render(d) {
+  // hero
+  $('score').textContent = d.score;
+  const vs = VERDICT_STYLE[d.verdict] || VERDICT_STYLE.LOW;
+  $('verdict').style.background = vs.color;
+  $('verdict').textContent = vs.icon + ' ' + d.verdict + ' RISK';
+  $('advice').textContent = d.advice;
+  $('pin').style.left = Math.min(d.score, 100) + '%';
+
+  // factors
+  if (d.factors.length) {
+    $('factors').innerHTML = d.factors.map(f => `
+      <div class="factor">
+        <div class="pts" style="background:${f.points >= 30 ? 'var(--critical)' : 'var(--serious)'};color:#fff">+${f.points}</div>
+        <div><div class="what">${esc(f.label)}</div><div class="why">${esc(f.detail)}</div></div>
+      </div>`).join('');
+  } else {
+    $('factors').innerHTML = '<div class="row"><span class="pill clean">✓ No risk factors detected</span></div>';
+  }
+  if (d.coverage_gaps.length) {
+    $('gaps').style.display = 'block';
+    $('gaps').textContent = '? Incomplete coverage — these sources did not answer: ' + d.coverage_gaps.join(', ') + '. Their risk is not included in the score.';
+  } else { $('gaps').style.display = 'none'; }
+
+  // availability
+  const a = d.checks.availability;
+  if (a.status !== 'ok') {
+    $('avail').innerHTML = `<span class="pill unknown">? ${esc(a.error)}</span>`;
+  } else if (a.available) {
+    $('avail').innerHTML = `<span class="pill clean" style="font-size:15px">✓ Available to register</span>
+      <p class="note" style="margin-top:8px">${esc(d.domain)} has no registry record. Available — but read the rest of this report before buying.</p>`;
+  } else {
+    $('avail').innerHTML = `<span class="pill listed" style="font-size:15px">✕ Already registered</span>
+      <dl class="kv" style="margin-top:10px">
+        ${a.registrar ? `<dt>Registrar</dt><dd>${esc(a.registrar)}</dd>` : ''}
+        ${a.registered ? `<dt>Registered</dt><dd>${esc(a.registered.slice(0,10))}${a.age_years != null ? ` (${a.age_years} yrs old)` : ''}</dd>` : ''}
+        ${a.expires ? `<dt>Expires</dt><dd>${esc(a.expires.slice(0,10))}</dd>` : ''}
+      </dl>`;
+  }
+
+  // deliverability
+  const dv = d.deliverability, ds = DELIV_STYLE[dv.verdict] || DELIV_STYLE.UNKNOWN;
+  $('deliv').innerHTML = `<span class="pill ${ds.cls}" style="font-size:15px">${ds.icon} ${esc(dv.verdict)}</span>
+    <p class="note" style="margin-top:8px;color:var(--ink-2);font-size:13.5px">${esc(dv.detail)}</p>`;
+
+  // blacklists
+  const b = d.checks.blacklists;
+  if (b.status !== 'ok') {
+    $('bl').innerHTML = '<span class="pill unknown">? Blacklist checks failed</span>';
+  } else {
+    const rows = [...b.domain_lists, ...b.ip_lists].map(l => {
+      let pill, detail = '';
+      if (l.listed) {
+        pill = '<span class="pill listed">✕ LISTED</span>';
+        if (l.reasons && l.reasons.length) detail = esc(l.reasons.join(', '));
+      } else if (l.status === 'unknown') {
+        pill = '<span class="pill unknown">? UNKNOWN</span>';
+        detail = esc(l.note || 'no answer');
+      } else {
+        pill = '<span class="pill clean">✓ CLEAN</span>';
+      }
+      const scope = l.ip ? ` <span class="detail">(IP ${esc(l.ip)})</span>` : '';
+      return `<div class="row"><span>${esc(l.list)}${scope}${detail ? `<div class="detail">${detail}</div>` : ''}</span>${pill}</div>`;
+    }).join('');
+    const resolveNote = b.resolves ? '' : '<p class="note">Domain does not currently resolve — IP-based lists not applicable.</p>';
+    $('bl').innerHTML = rows + resolveNote;
+  }
+
+  // malware hosting (URLhaus, optional)
+  const ab = d.checks.abuse;
+  if (ab.status === 'disabled') {
+    $('abuse').innerHTML = `<span class="pill unknown" style="font-size:15px">— Not enabled</span>
+      <p class="note" style="margin-top:8px">${esc(ab.note)}</p>`;
+  } else if (ab.status !== 'ok') {
+    $('abuse').innerHTML = `<span class="pill unknown">? ${esc(ab.error || 'check failed')}</span>`;
+  } else if (ab.listed) {
+    $('abuse').innerHTML = `<span class="pill listed" style="font-size:15px">✕ Malware hosting found</span>
+      <p class="note" style="margin-top:8px;color:var(--ink-2);font-size:13.5px">${ab.url_count} malicious URL(s) on record${ab.threats && ab.threats.length ? ' — ' + esc(ab.threats.join(', ')) : ''}.</p>
+      ${ab.sample_urls && ab.sample_urls.length ? `<ul class="evidence">${ab.sample_urls.map(u => `<li>${esc(u)}</li>`).join('')}</ul>` : ''}`;
+  } else {
+    $('abuse').innerHTML = `<span class="pill clean" style="font-size:15px">✓ No malware records</span>`;
+  }
+
+  // mail infrastructure (MX / SPF / DMARC)
+  const m = d.checks.mail;
+  if (m.status !== 'ok') {
+    $('mail').innerHTML = `<span class="pill unknown">? ${esc(m.error || 'DNS lookup failed')}</span>`;
+  } else if (!m.configured) {
+    $('mail').innerHTML = `<span class="pill unknown" style="font-size:15px">— Not configured</span>
+      <p class="note" style="margin-top:8px">No MX, SPF, or DMARC records yet — expected for a domain with no live mail setup.</p>`;
+  } else {
+    const spfPill = !m.spf.present ? '<span class="pill unknown">? none</span>'
+      : m.spf.permissive ? '<span class="pill listed">✕ +all (permissive)</span>'
+      : '<span class="pill clean">✓ present</span>';
+    const dmarcPill = !m.dmarc.present ? '<span class="pill unknown">? none</span>'
+      : m.dmarc.policy === 'reject' ? '<span class="pill clean">✓ reject</span>'
+      : m.dmarc.policy === 'quarantine' ? '<span class="pill clean">✓ quarantine</span>'
+      : '<span class="pill unknown">▲ p=none (monitor only)</span>';
+    $('mail').innerHTML = `
+      <div class="row"><span>MX records${m.mx_hosts.length ? `<div class="detail">${esc(m.mx_hosts.join(', '))}</div>` : ''}</span>${m.has_mx ? '<span class="pill clean">✓ present</span>' : '<span class="pill unknown">? none</span>'}</div>
+      <div class="row"><span>SPF${m.spf.record ? `<div class="detail">${esc(m.spf.record)}</div>` : ''}</span>${spfPill}</div>
+      <div class="row"><span>DMARC${m.dmarc.record ? `<div class="detail">${esc(m.dmarc.record)}</div>` : ''}</span>${dmarcPill}</div>`;
+  }
+
+  // trademark
+  const t = d.checks.trademark;
+  let tmHtml;
+  if (t.conflict) {
+    const what = t.exact_match ? `label is exactly “${esc(t.exact_match)}”`
+      : t.contains_brands.length ? `contains ${t.contains_brands.map(x => '“' + esc(x) + '”').join(', ')}`
+      : `one edit away from ${t.typosquat_of.map(x => '“' + esc(x) + '”').join(', ')}`;
+    tmHtml = `<span class="pill listed" style="font-size:15px">▲ Possible conflict</span>
+      <p class="note" style="margin-top:8px;color:var(--ink-2);font-size:13.5px">“${esc(t.label)}” ${what}. Famous marks attract UDRP complaints and registrar takedowns.</p>`;
+  } else {
+    tmHtml = `<span class="pill clean" style="font-size:15px">✓ No famous-brand collision</span>
+      <p class="note" style="margin-top:8px">Heuristic screen against well-known marks only — confirm in the official databases:</p>`;
+  }
+  tmHtml += `<div class="links">` + Object.entries(t.search_links)
+    .map(([k, v]) => `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(k)} search ↗</a>`).join('') + `</div>`;
+  $('tm').innerHTML = tmHtml;
+
+  // history
+  const h = d.checks.history;
+  if (h.status !== 'ok') {
+    $('hist').innerHTML = `<span class="pill unknown">? ${esc(h.error)}</span>`;
+  } else if (!h.has_history) {
+    $('hist').innerHTML = `<span class="pill clean" style="font-size:15px">✓ Clean slate</span>
+      <p class="note" style="margin-top:8px">The Internet Archive has no snapshots of this domain — no known prior web use.</p>`;
+  } else {
+    const y0 = h.first_year, y1 = Math.max(h.last_year, new Date().getFullYear());
+    let strip = '<div class="years">';
+    for (let y = y0; y <= y1; y++) {
+      const on = h.snapshot_years.includes(y);
+      strip += `<div class="yr ${on ? '' : 'off'}" title="${y}${on ? ': archived' : ': no snapshots'}"><i></i>${String(y).slice(2)}</div>`;
+    }
+    strip += '</div>';
+    let html = `<dl class="kv">
+        <dt>First archived</dt><dd>${h.first_year}</dd>
+        <dt>Last archived</dt><dd>${h.last_year}${h.dormant_years >= 2 ? ` <span class="pill unknown">▲ dark for ${h.dormant_years} yrs</span>` : ''}</dd>
+        <dt>Active years</dt><dd>${h.active_years}</dd>
+        <dt>URLs scanned</dt><dd>${h.urls_scanned}</dd>
+      </dl>` + strip;
+    if (h.approximate) {
+      html += `<p class="note">? Archive timeline query timed out — years approximated from a sample of ${h.urls_scanned} archived URLs; actual history may be longer.</p>`;
+    }
+    const cats = Object.entries(h.risky_hits || {});
+    if (cats.length) {
+      html += cats.map(([cat, urls]) => `<div class="cat">✕ ${esc(cat)}</div>
+        <ul class="evidence">${urls.map(u => `<li>${esc(u)}</li>`).join('')}</ul>`).join('');
+    } else {
+      html += `<p class="note" style="margin-top:10px"><span class="pill clean">✓</span> No spam/scam keywords in ${h.urls_scanned} archived URLs.</p>`;
+    }
+    html += `<div class="links"><a href="${esc(h.wayback_url)}" target="_blank" rel="noopener">Browse full archive ↗</a></div>`;
+    $('hist').innerHTML = html;
+  }
+
+  // certificate transparency (crt.sh) — informational prior-operator footprint
+  const c = d.checks.certs;
+  if (c.status !== 'ok') {
+    $('certs').innerHTML = `<span class="pill unknown">? ${esc(c.error || 'crt.sh unreachable')}</span>
+      <p class="note" style="margin-top:8px">crt.sh is a free community service and is sometimes overloaded — this is a coverage gap, not a finding.</p>`;
+  } else if (!c.has_certs) {
+    $('certs').innerHTML = `<span class="pill clean" style="font-size:15px">✓ No certificates on record</span>
+      <p class="note" style="margin-top:8px">No publicly-logged TLS certificate has ever been issued for this domain — consistent with no prior real-world use.</p>`;
+  } else {
+    let html = `<dl class="kv">
+        <dt>First certificate</dt><dd>${esc(c.first_cert || '—')}</dd>
+        <dt>Last certificate</dt><dd>${esc(c.last_cert || '—')}${c.recent_activity ? ' <span class="pill unknown">▲ issued within 12mo</span>' : ''}</dd>
+        <dt>Certificates seen</dt><dd>${c.cert_count}${c.cert_count_is_floor ? '+' : ''}</dd>
+        <dt>Distinct subdomains</dt><dd>${c.subdomain_count}</dd>
+      </dl>`;
+    if (c.subdomains.length) {
+      html += `<p class="note" style="margin-top:10px">Subdomains seen in certificates (what this domain was used for):</p>
+        <ul class="evidence">${c.subdomains.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`;
+    }
+    html += `<div class="links"><a href="${esc(c.crtsh_url)}" target="_blank" rel="noopener">Browse on crt.sh ↗</a></div>`;
+    $('certs').innerHTML = html;
+  }
+
+  $('elapsed').textContent = `Scan took ${d.elapsed_seconds}s.`;
+  $('results').style.display = 'block';
+}
+
+// shareable links: /?domain=example.com auto-scans on load
+const preset = new URLSearchParams(location.search).get('domain');
+if (preset) {
+  $('domain').value = preset;
+  $('form').requestSubmit();
+}
+</script>
+</body>
+</html>
