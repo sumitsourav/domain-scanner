@@ -86,8 +86,17 @@ correlate with prior use, not cleanly with risk direction.
   8.8.8.8) — the app detects the refusal sentinels and reports those lists as
   UNKNOWN instead of clean.
 - **crt.sh** is a free community service that is frequently overloaded (502/504
-  or timeouts are common, especially for high-traffic domains). Treated as a
-  coverage gap, never as "no certificates."
+  or timeouts are common, especially for high-traffic domains). Handled three
+  ways: one quick retry on a transient 5xx/connection error (but not on a
+  timeout, where retrying just doubles the wait); a 24h response cache so
+  repeat scans skip it entirely; and a **stale-on-error fallback** — if the
+  live call fails but we scanned this domain before, the last good result is
+  served (labeled "cached, live source unavailable") instead of a coverage gap.
+- **Caching** (`app/scan_cache.py`, `check_cache` table): only the two slow,
+  slowly-changing checks — crt.sh and Wayback — are cached, fresh for 24h.
+  A warm repeat scan drops from ~15s to well under 1s. Volatile signals
+  (blacklists, mail, live content) are deliberately never cached, so a
+  domain's current reputation is always checked live.
 - **Mail infrastructure lookups deliberately use public DNS** (1.1.1.1 / 9.9.9.9 /
   8.8.8.8) rather than your system resolver — some ISP/router DNS proxies
   silently truncate or REFUSE multi-record TXT answers, which would otherwise

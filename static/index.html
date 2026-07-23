@@ -66,6 +66,26 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+function ago(sec) {
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return Math.round(sec / 60) + 'm ago';
+  if (sec < 86400) return Math.round(sec / 3600) + 'h ago';
+  return Math.round(sec / 86400) + 'd ago';
+}
+// Cached checks (certs, history) carry a `cache` marker. Show a loud note
+// when data is stale (live source was down, showing last-known-good), and a
+// quiet one on an ordinary cache hit.
+function appendCacheNote(elId, check) {
+  const c = check && check.cache;
+  if (!c || !c.hit) return;
+  const el = document.getElementById(elId);
+  if (c.stale) {
+    el.innerHTML += `<p class="note" style="margin-top:10px;color:var(--serious)">⚠ Live source was unavailable — showing cached data from ${ago(c.age_seconds)}.</p>`;
+  } else {
+    el.innerHTML += `<p class="note" style="margin-top:10px">Cached ${ago(c.age_seconds)} · re-fetched daily.</p>`;
+  }
+}
+
 const VERDICT_STYLE = {
   LOW:      { color: 'var(--good)',     icon: '✓' },
   MODERATE: { color: 'var(--warning)',  icon: '▲' },
@@ -327,6 +347,7 @@ function render(d) {
     html += `<div class="links"><a href="${esc(h.wayback_url)}" target="_blank" rel="noopener">Browse full archive ↗</a></div>`;
     $('hist').innerHTML = html;
   }
+  appendCacheNote('hist', h);
 
   // certificate transparency (crt.sh) — informational prior-operator footprint
   const c = d.checks.certs;
@@ -350,6 +371,7 @@ function render(d) {
     html += `<div class="links"><a href="${esc(c.crtsh_url)}" target="_blank" rel="noopener">Browse on crt.sh ↗</a></div>`;
     $('certs').innerHTML = html;
   }
+  appendCacheNote('certs', c);
 
   // infrastructure fingerprint + cross-scan shared-risk evidence
   const inf = d.checks.infrastructure;

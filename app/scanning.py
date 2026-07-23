@@ -21,7 +21,14 @@ from .checks.mail import check_mail
 from .checks.reputation import registrar_trust, tld_risk
 from .checks.trademark import check_trademark
 from .network_history import find_shared_risk, log_scan
+from .scan_cache import cached_check
 from .scoring import compute_score
+
+# crt.sh and Wayback are the two slow, flaky external checks, and both return
+# slowly-changing historical data — so they're cached (fresh for a day) with a
+# stale-on-error fallback. See app/scan_cache.py.
+CERTS_TTL_SECONDS = 24 * 3600
+HISTORY_TTL_SECONDS = 24 * 3600
 
 
 async def run_full_scan(domain: str) -> dict[str, Any]:
@@ -30,8 +37,8 @@ async def run_full_scan(domain: str) -> dict[str, Any]:
     availability, blacklists, history, certs, mail, abuse, infra, live = await asyncio.gather(
         check_availability(domain),
         check_blacklists(domain),
-        check_history(domain),
-        check_certs(domain),
+        cached_check("history", domain, check_history, HISTORY_TTL_SECONDS),
+        cached_check("certs", domain, check_certs, CERTS_TTL_SECONDS),
         check_mail(domain),
         check_abuse(domain),
         check_infrastructure(domain),

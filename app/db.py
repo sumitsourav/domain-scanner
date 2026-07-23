@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS scans (
     scanned_at   TEXT NOT NULL
 );
 
+-- Response cache for slow/flaky external checks (crt.sh, Wayback). Keyed by
+-- (source, domain); payload is the check's JSON result. Powers both a
+-- freshness cache and a stale-on-error fallback — see app/scan_cache.py.
+CREATE TABLE IF NOT EXISTS check_cache (
+    source     TEXT NOT NULL,
+    domain     TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (source, domain)
+);
+
 CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_listings_seller ON listings(seller_id);
 CREATE INDEX IF NOT EXISTS idx_offers_listing ON offers(listing_id);

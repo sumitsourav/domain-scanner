@@ -17,14 +17,18 @@ non-200s and timeouts as a plain coverage gap, never as "no certs."
 from __future__ import annotations
 
 import datetime
+import asyncio
 from typing import Any
 
 import httpx
 
 CRTSH = "https://crt.sh/"
-TIMEOUT = 15.0
+TIMEOUT = 10.0
+RETRY_BACKOFF = 0.6
 MAX_ROWS = 500
 MAX_SUBDOMAINS_SHOWN = 25
+
+_NO_CERTS = {"status": "ok", "has_certs": False, "subdomains": [], "cert_count": 0}
 
 
 def _dedupe_names(rows: list[dict]) -> set[str]:
@@ -37,25 +41,46 @@ def _dedupe_names(rows: list[dict]) -> set[str]:
     return names
 
 
+async def _fetch_rows(domain: str) -> tuple[list[dict] | None, str | None]:
+    """Returns (rows, error). rows == [] means 'no certs' (not an error).
+
+    crt.sh 5xx responses are frequently transient (observed flipping
+    502 -> 200 within seconds), so a 5xx or connection error gets one quick
+    retry. A timeout does NOT retry — retrying a hung request just doubles
+    the wait for no likely gain.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        for attempt in range(2):  # one try + one retry
+            try:
+                resp = await client.get(CRTSH, params={"q": domain, "output": "json"})
+            except httpx.TimeoutException:
+                return None, "crt.sh timed out"
+            except httpx.HTTPError as exc:
+                if attempt == 0:
+                    await asyncio.sleep(RETRY_BACKOFF)
+                    continue
+                return None, f"crt.sh unreachable: {exc.__class__.__name__}"
+
+            if resp.status_code == 404:
+                return [], None
+            if resp.status_code >= 500 and attempt == 0:
+                await asyncio.sleep(RETRY_BACKOFF)
+                continue
+            if resp.status_code != 200:
+                return None, f"crt.sh returned HTTP {resp.status_code}"
+            try:
+                return resp.json(), None
+            except ValueError:
+                return None, "crt.sh returned invalid JSON"
+    return None, "crt.sh unavailable after retry"
+
+
 async def check_certs(domain: str) -> dict[str, Any]:
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.get(CRTSH, params={"q": domain, "output": "json"})
-    except httpx.HTTPError as exc:
-        return {"status": "error", "error": f"crt.sh unreachable: {exc.__class__.__name__}"}
-
-    if resp.status_code == 404:
-        return {"status": "ok", "has_certs": False, "subdomains": [], "cert_count": 0}
-    if resp.status_code != 200:
-        return {"status": "error", "error": f"crt.sh returned HTTP {resp.status_code}"}
-
-    try:
-        rows = resp.json()
-    except ValueError:
-        return {"status": "error", "error": "crt.sh returned invalid JSON"}
-
+    rows, error = await _fetch_rows(domain)
+    if error is not None:
+        return {"status": "error", "error": error}
     if not rows:
-        return {"status": "ok", "has_certs": False, "subdomains": [], "cert_count": 0}
+        return dict(_NO_CERTS)
 
     rows = rows[:MAX_ROWS]
     names = _dedupe_names(rows)

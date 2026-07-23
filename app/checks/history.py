@@ -22,8 +22,10 @@ import httpx
 
 from ..risk_lexicon import PATTERNS
 
+# Tightened from 20s: a timeout now falls back to the stale cache (see
+# app/scan_cache.py) rather than a coverage gap, so failing faster is cheaper.
 CDX = "https://web.archive.org/cdx/search/cdx"
-TIMEOUT = 20.0
+TIMEOUT = 15.0
 MAX_URLS = 800
 
 
