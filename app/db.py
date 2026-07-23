@@ -68,11 +68,30 @@ CREATE TABLE IF NOT EXISTS ratings (
     UNIQUE(offer_id, rater_id)
 );
 
+-- One row per domain (upserted on every scan) — the accumulated fingerprint
+-- history that powers the "shares infrastructure with N previously-scanned
+-- high-risk domains" signal in app/network_history.py. nameservers is a
+-- sorted, comma-joined string (not JSON) so an exact-match SQL comparison
+-- is order-independent without needing sqlite's JSON extension.
+CREATE TABLE IF NOT EXISTS scans (
+    domain       TEXT PRIMARY KEY,
+    resolved_ip  TEXT,
+    nameservers  TEXT,
+    asn          TEXT,
+    asn_name     TEXT,
+    risk_score   INTEGER NOT NULL,
+    risk_verdict TEXT NOT NULL,
+    scanned_at   TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_listings_seller ON listings(seller_id);
 CREATE INDEX IF NOT EXISTS idx_offers_listing ON offers(listing_id);
 CREATE INDEX IF NOT EXISTS idx_offers_buyer ON offers(buyer_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_scans_ip ON scans(resolved_ip);
+CREATE INDEX IF NOT EXISTS idx_scans_ns ON scans(nameservers);
+CREATE INDEX IF NOT EXISTS idx_scans_verdict ON scans(risk_verdict);
 """
 
 

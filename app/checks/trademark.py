@@ -1,14 +1,24 @@
-"""Heuristic trademark-collision check.
+"""Heuristic trademark-collision and traffic-hijack typosquat check.
 
-There is no free, keyless trademark search API, so this flags the obvious
-landmines: a famous brand name embedded in the label (containment) or one
-edit away from it (typosquat). Results are a heuristic screen, not legal
-advice — the UI links to USPTO/EUIPO search for confirmation.
+Two layers:
+  1. Trademark collision — a famous brand embedded in the label
+     (containment) or one edit away (typosquat), against a small curated
+     list. No free, keyless trademark search API exists, so this is a
+     heuristic screen, not legal advice — the UI links to USPTO/EUIPO
+     search for confirmation.
+  2. General traffic-hijack typosquat — one edit away from any of ~1800
+     high-traffic domains (see app/popular_labels.py), typosquat-only
+     (never containment, which would be far too noisy at this size). This
+     targets a different risk than trademark law: scammers typosquat any
+     popular destination to steal traffic/credentials, brand-owner or not.
+     Only checked when no trademark-layer hit already fired.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from ..popular_labels import POPULAR_LABELS
 
 FAMOUS_BRANDS = [
     # tech
@@ -35,6 +45,10 @@ FAMOUS_BRANDS = [
     "porsche", "ferrari", "boeing", "airbus", "marriott", "hilton",
 ]
 _BRANDS = sorted(set(b for b in FAMOUS_BRANDS if len(b) >= 4), key=len, reverse=True)
+
+# Popular-domain corpus (see app/popular_labels.py) minus anything already in
+# the curated brand list, so a hit is reported once, under one label.
+_POPULAR = sorted(set(POPULAR_LABELS) - set(_BRANDS))
 
 
 def _levenshtein_leq1(a: str, b: str) -> bool:
@@ -74,13 +88,26 @@ def check_trademark(domain: str) -> dict[str, Any]:
             typosquats.append(brand)
 
     conflict = bool(exact or contains or typosquats)
+
+    # Broader traffic-hijack check: typosquat-only (no containment — the
+    # corpus is too big and too generic for containment to stay low-noise)
+    # against ~1800 high-traffic domains. Skipped entirely if a famous-brand
+    # hit already fired, so the same collision is never reported twice.
+    popular_typosquat = None
+    if not conflict:
+        for site in _POPULAR:
+            if _levenshtein_leq1(label, site):
+                popular_typosquat = site
+                break
+
     return {
         "status": "ok",
         "label": label,
         "exact_match": exact,
         "contains_brands": contains[:5],
         "typosquat_of": typosquats[:5],
-        "conflict": conflict,
+        "popular_typosquat_of": popular_typosquat,
+        "conflict": conflict or bool(popular_typosquat),
         "search_links": {
             "USPTO": f"https://tmsearch.uspto.gov/search/search-information?query={label}",
             "EUIPO": f"https://euipo.europa.eu/eSearch/#basic/1+1+1+1/50+50+50+50/{label}",

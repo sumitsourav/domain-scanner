@@ -165,6 +165,22 @@ function render(d) {
       </dl>`;
   }
 
+  // reputation priors: TLD abuse tier + registrar trust (informational)
+  const rep = d.checks.reputation;
+  if (rep && rep.status === 'ok') {
+    let repHtml = '';
+    const tld = rep.tld;
+    if (tld.tier === 'high' || tld.tier === 'elevated') {
+      repHtml += `<div class="row"><span>TLD <code>.${esc(tld.tld)}</code><div class="detail">${esc(tld.note)}</div></span><span class="pill listed">▲ +${tld.points}</span></div>`;
+    } else if (tld.tier === 'restricted') {
+      repHtml += `<div class="row"><span>TLD <code>.${esc(tld.tld)}</code><div class="detail">${esc(tld.note)}</div></span><span class="pill clean">✓ restricted</span></div>`;
+    }
+    if (rep.registrar.tier === 'premium') {
+      repHtml += `<div class="row"><span>Registrar<div class="detail">${esc(rep.registrar.note)}</div></span><span class="pill clean">✓ premium</span></div>`;
+    }
+    if (repHtml) $('avail').innerHTML += repHtml;
+  }
+
   // deliverability
   const dv = d.deliverability, ds = DELIV_STYLE[dv.verdict] || DELIV_STYLE.UNKNOWN;
   $('deliv').innerHTML = `<span class="pill ${ds.cls}" style="font-size:15px">${ds.icon} ${esc(dv.verdict)}</span>
@@ -232,12 +248,15 @@ function render(d) {
   // trademark
   const t = d.checks.trademark;
   let tmHtml;
-  if (t.conflict) {
+  if (t.exact_match || t.contains_brands.length || t.typosquat_of.length) {
     const what = t.exact_match ? `label is exactly “${esc(t.exact_match)}”`
       : t.contains_brands.length ? `contains ${t.contains_brands.map(x => '“' + esc(x) + '”').join(', ')}`
       : `one edit away from ${t.typosquat_of.map(x => '“' + esc(x) + '”').join(', ')}`;
     tmHtml = `<span class="pill listed" style="font-size:15px">▲ Possible conflict</span>
       <p class="note" style="margin-top:8px;color:var(--ink-2);font-size:13.5px">“${esc(t.label)}” ${what}. Famous marks attract UDRP complaints and registrar takedowns.</p>`;
+  } else if (t.popular_typosquat_of) {
+    tmHtml = `<span class="pill listed" style="font-size:15px">▲ Typosquat of a high-traffic domain</span>
+      <p class="note" style="margin-top:8px;color:var(--ink-2);font-size:13.5px">“${esc(t.label)}” is one edit away from “${esc(t.popular_typosquat_of)}” — not a known trademark, but this pattern is commonly used to steal traffic or credentials from a popular site's visitors.</p>`;
   } else {
     tmHtml = `<span class="pill clean" style="font-size:15px">✓ No famous-brand collision</span>
       <p class="note" style="margin-top:8px">Heuristic screen against well-known marks only — confirm in the official databases:</p>`;

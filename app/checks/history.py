@@ -15,29 +15,16 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import re
 from typing import Any
 from urllib.parse import unquote
 
 import httpx
 
+from ..risk_lexicon import PATTERNS
+
 CDX = "https://web.archive.org/cdx/search/cdx"
 TIMEOUT = 20.0
 MAX_URLS = 800
-
-# Verticals with outsized reputation damage. Word-ish boundaries to avoid
-# false hits like "class" -> "cialis" style substring accidents.
-RISK_LEXICON = {
-    "pharma": r"viagra|cialis|levitra|xanax|valium|tramadol|pharmacy|pills?",
-    "gambling": r"casino|poker|slots?|betting|roulette|jackpot",
-    "adult": r"porn|xxx|escorts?|adult-?dating|camgirls?",
-    "counterfeit": r"replica|knock-?off|fake-?(watches|bags|designer)",
-    "predatory-finance": r"payday-?loans?|quick-?cash|forex-?signals?|binary-?options?",
-    "crypto-scam": r"free-?bitcoin|crypto-?(giveaway|doubler)|airdrops?-?free",
-    "malware-ish": r"keygen|cracked?-?(software|apk)|serial-?key|warez",
-    "seo-spam": r"buy-?backlinks?|cheap-?seo|link-?farm",
-}
-_PATTERNS = {cat: re.compile(rx, re.IGNORECASE) for cat, rx in RISK_LEXICON.items()}
 
 
 async def _cdx(client: httpx.AsyncClient, params: dict) -> list[list[str]] | None:
@@ -54,7 +41,7 @@ def _scan_urls(urls: list[str]) -> dict[str, list[str]]:
     hits: dict[str, list[str]] = {}
     for url in urls:
         decoded = unquote(url)
-        for cat, pattern in _PATTERNS.items():
+        for cat, pattern in PATTERNS.items():
             if pattern.search(decoded):
                 hits.setdefault(cat, [])
                 if len(hits[cat]) < 5:  # keep evidence lists short

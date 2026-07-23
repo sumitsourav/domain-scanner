@@ -57,7 +57,8 @@ shell. `.env` is gitignored; `.env.example` is the checked-in template.
 | Mail infrastructure | live MX / SPF / DMARC via DNS | measured mail setup, not a guess — flags a `+all` SPF (accepts mail from any sender) | yes |
 | Prior-use history | Wayback Machine CDX API | first/last archived year, activity timeline, drop-catch churn, spam/scam keywords in up to 800 archived URLs | yes |
 | Certificate history | Certificate Transparency logs (crt.sh) | subdomains and date range seen in every publicly-trusted TLS cert ever issued — reveals prior operator footprint even where Wayback never crawled | yes |
-| Trademark screen | offline heuristic vs. ~120 famous marks | exact / containment / distance-1 typosquat collisions, with USPTO · EUIPO · WIPO search links | yes |
+| Trademark screen | offline heuristic vs. ~120 famous marks + ~1800 high-traffic domains | exact / containment / distance-1 typosquat against famous brands; typosquat-only against a broader popularity corpus (a different risk: traffic hijacking, not trademark) | yes |
+| Reputation priors | offline heuristic (Spamhaus/Interisle TLD abuse patterns; a small premium-registrar allowlist) | TLD abuse-rate tier (`.top`, `.xyz`-style new gTLDs vs. legacy); registrar trust is informational-only — see [Known quirks](#known-quirks) for why there's no "risky registrar" list | yes |
 | Email deliverability | derived | blacklist status + SPF + reputation history rolled into a GOOD / WATCH / POOR verdict | yes |
 
 To enable the optional URLhaus malware check, get a free key at <https://auth.abuse.ch/>
@@ -68,12 +69,14 @@ and run `ABUSECH_AUTH_KEY=xxxx ./run.sh`. Without it, that card just reports "no
 Additive, capped at 100, with a per-factor evidence breakdown in the response:
 Spamhaus DBL +45 · URLhaus malware hosting +35 · SURBL/URIBL +30 · IP lists +15 ·
 risky archive content +25–40 · famous-brand collision +25–30 ·
-permissive SPF (`+all`) +15 · drop-catch churn +10.
+popular-domain typosquat +15 · permissive SPF (`+all`) +15 ·
+high-abuse TLD +10 · drop-catch churn +10.
 
 Bands: **0–19 LOW · 20–44 MODERATE · 45–69 HIGH · 70+ SEVERE.**
 Sources that time out are reported as *coverage gaps*, never silently counted as
-clean. Certificate Transparency is informational only (subdomain footprints
-correlate with prior use, not with risk direction) and isn't scored.
+clean. Certificate Transparency and registrar trust are informational only
+(they don't move the score) — subdomain footprints and registrar choice
+correlate with prior use, not cleanly with risk direction.
 
 ## Known quirks
 
@@ -89,6 +92,17 @@ correlate with prior use, not with risk direction) and isn't scored.
   be mistaken for "no SPF record configured." This is safe for plain MX/TXT
   lookups (unlike the DNSBL zones above, they aren't subject to anti-abuse
   blocking of public resolvers).
+- **No "risky registrar" list, on purpose.** `app/checks/reputation.py` only
+  ever gives a positive signal (a small allowlist of registrars documented as
+  corporate/brand-protection specialists, e.g. MarkMonitor). Naming specific
+  companies as abuse-prone in scoring code asserts a reputational claim this
+  app has no live way to verify, and any registrar's abuse profile can shift
+  entirely under new ownership or policy — unlike a DNSBL listing, which is a
+  live, third-party-maintained verdict we're just relaying.
+- **TLD abuse tiers are a static, hand-maintained prior**, not a live feed —
+  based on repeated findings in Spamhaus's "World's Most Abused TLDs" and
+  Interisle's Cybercrime Supply Chain reports. Weighted modestly (+5/+10)
+  since it's a prior about the TLD in general, not a verdict on this domain.
 
 ## Marketplace
 

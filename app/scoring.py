@@ -28,7 +28,9 @@ LIST_WEIGHTS = {
 
 def compute_score(domain: str, availability: dict, blacklists: dict,
                   history: dict, trademark: dict, mail: dict,
-                  abuse: dict) -> dict[str, Any]:
+                  abuse: dict, reputation: dict | None = None,
+                  live_content: dict | None = None,
+                  shared_infra: list[dict] | None = None) -> dict[str, Any]:
     factors: list[dict[str, Any]] = []
     unknown_sources: list[str] = []
 
@@ -74,6 +76,17 @@ def compute_score(domain: str, availability: dict, blacklists: dict,
         elif trademark.get("typosquat_of"):
             add(25, "One edit away from famous brand (typosquat)",
                 ", ".join(trademark["typosquat_of"]))
+        elif trademark.get("popular_typosquat_of"):
+            add(15, "One edit away from a high-traffic domain (typosquat)",
+                trademark["popular_typosquat_of"])
+
+    # --- reputation priors (TLD abuse rate; registrar is informational only) -
+    if reputation and reputation.get("status") == "ok":
+        tld = reputation.get("tld") or {}
+        if tld.get("points"):
+            add(tld["points"], f"High-abuse-prone TLD (.{tld['tld']})", tld["note"])
+    else:
+        unknown_sources.append("reputation")
 
     # --- mail infrastructure -----------------------------------------------
     spf_permissive = False
@@ -97,6 +110,31 @@ def compute_score(domain: str, availability: dict, blacklists: dict,
     # status == "disabled" (no API key configured) is not a coverage gap —
     # it's an opt-in check the operator hasn't turned on.
 
+    # --- live page content ---------------------------------------------------
+    # Stronger than the Wayback equivalent — this is what's there *right now*,
+    # not history — so it's weighted a bit higher than the archived-content factor.
+    if live_content and live_content.get("status") == "ok":
+        risky = live_content.get("risky_hits") or {}
+        if risky:
+            n_cats = len(risky)
+            pts = min(30 + (n_cats - 1) * 5, 45)
+            add(pts, "Risky content on the live page right now",
+                f"categories: {', '.join(sorted(risky))}")
+        # Parking is informational, not a risk factor — an unused-but-parked
+        # domain isn't inherently dangerous, just unoccupied.
+    elif live_content is None:
+        pass
+    else:
+        unknown_sources.append("live content")
+
+    # --- shared infrastructure with previously-scanned high-risk domains -----
+    if shared_infra:
+        n = len(shared_infra)
+        pts = min(15 + (n - 1) * 5, 30)
+        examples = ", ".join(f"{m['domain']} ({m['risk_verdict']})" for m in shared_infra[:3])
+        add(pts, f"Shares infrastructure with {n} previously-scanned high-risk domain(s)",
+            examples)
+
     score = min(sum(f["points"] for f in factors), 100)
     for threshold, verdict, advice in BANDS:
         if score >= threshold:
@@ -117,6 +155,10 @@ def compute_score(domain: str, availability: dict, blacklists: dict,
     elif "blacklists" in unknown_sources:
         deliverability = {"verdict": "UNKNOWN",
                           "detail": "Blacklist checks did not complete."}
+    elif live_content and live_content.get("status") == "ok" and live_content.get("risky_hits"):
+        deliverability = {"verdict": "WATCH",
+                          "detail": "Not currently blocklisted, but the live site has spam/scam "
+                                    "content right now — blocklisting is likely a matter of time."}
     elif history.get("status") == "ok" and history.get("risky_hits"):
         deliverability = {"verdict": "WATCH",
                           "detail": "Not currently blocklisted, but prior spammy use can "
