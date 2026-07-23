@@ -20,6 +20,7 @@ tool, worth hardening before any public deployment.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 from typing import Any
@@ -55,6 +56,16 @@ async def _resolve_ip(domain: str) -> str | None:
         return str(answer[0])
     except Exception:
         return None
+
+
+async def _cancel(task: "asyncio.Task") -> None:
+    """Cancel a pending request task and swallow its result/error, so it can't
+    surface as an 'exception never retrieved' warning."""
+    task.cancel()
+    try:
+        await task
+    except (asyncio.CancelledError, httpx.HTTPError):
+        pass
 
 
 def _is_safe_public_ip(ip_str: str) -> bool:
@@ -105,13 +116,22 @@ async def check_live_content(domain: str) -> dict[str, Any]:
     protocol_used = None
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True,
                                   max_redirects=MAX_REDIRECTS, headers=headers) as client:
-        for scheme in ("https", "http"):
+        # Fire HTTPS and HTTP concurrently: a hung/broken HTTPS listener would
+        # otherwise burn a full TIMEOUT before HTTP is even attempted (worst
+        # case ~2x). We still prefer HTTPS whenever it succeeds, and cancel the
+        # HTTP attempt in that case so a normal site isn't loaded twice.
+        https_task = asyncio.create_task(client.get(f"https://{domain}/"))
+        http_task = asyncio.create_task(client.get(f"http://{domain}/"))
+        try:
+            resp = await https_task
+            protocol_used = "https"
+            await _cancel(http_task)
+        except httpx.HTTPError:
             try:
-                resp = await client.get(f"{scheme}://{domain}/")
-                protocol_used = scheme
-                break
+                resp = await http_task
+                protocol_used = "http"
             except httpx.HTTPError:
-                continue
+                resp = None
 
     if resp is None:
         return {"status": "ok", "has_live_site": False,
