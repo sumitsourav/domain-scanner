@@ -57,8 +57,10 @@ shell. `.env` is gitignored; `.env.example` is the checked-in template.
 | Mail infrastructure | live MX / SPF / DMARC via DNS | measured mail setup, not a guess — flags a `+all` SPF (accepts mail from any sender) | yes |
 | Prior-use history | Wayback Machine CDX API | first/last archived year, activity timeline, drop-catch churn, spam/scam keywords in up to 800 archived URLs | yes |
 | Certificate history | Certificate Transparency logs (crt.sh) | subdomains and date range seen in every publicly-trusted TLS cert ever issued — reveals prior operator footprint even where Wayback never crawled | yes |
+| Live page content | fetches the domain's current site, if any | scans it against the same risk lexicon as Wayback history, plus parking-page detection — the only check that looks at what's there *right now*, not history | yes |
 | Trademark screen | offline heuristic vs. ~120 famous marks + ~1800 high-traffic domains | exact / containment / distance-1 typosquat against famous brands; typosquat-only against a broader popularity corpus (a different risk: traffic hijacking, not trademark) | yes |
 | Reputation priors | offline heuristic (Spamhaus/Interisle TLD abuse patterns; a small premium-registrar allowlist) | TLD abuse-rate tier (`.top`, `.xyz`-style new gTLDs vs. legacy); registrar trust is informational-only — see [Known quirks](#known-quirks) for why there's no "risky registrar" list | yes |
+| Infrastructure fingerprint | resolved IP, nameservers, ASN (Team Cymru DNS lookup) | logs every scan into this app's own SQLite history, then flags "shares infrastructure with N previously-scanned HIGH/SEVERE domains" — a network-effect signal that improves the more the tool is used, starting from nothing on a fresh install | yes |
 | Email deliverability | derived | blacklist status + SPF + reputation history rolled into a GOOD / WATCH / POOR verdict | yes |
 
 To enable the optional URLhaus malware check, get a free key at <https://auth.abuse.ch/>
@@ -67,10 +69,10 @@ and run `ABUSECH_AUTH_KEY=xxxx ./run.sh`. Without it, that card just reports "no
 ## Scoring
 
 Additive, capped at 100, with a per-factor evidence breakdown in the response:
-Spamhaus DBL +45 · URLhaus malware hosting +35 · SURBL/URIBL +30 · IP lists +15 ·
-risky archive content +25–40 · famous-brand collision +25–30 ·
-popular-domain typosquat +15 · permissive SPF (`+all`) +15 ·
-high-abuse TLD +10 · drop-catch churn +10.
+Spamhaus DBL +45 · URLhaus malware hosting +35 · live-page risky content +30–45 ·
+SURBL/URIBL +30 · risky archive content +25–40 · famous-brand collision +25–30 ·
+shared infrastructure with a known-bad domain +15–30 · popular-domain typosquat +15 ·
+permissive SPF (`+all`) +15 · IP lists +15 · high-abuse TLD +10 · drop-catch churn +10.
 
 Bands: **0–19 LOW · 20–44 MODERATE · 45–69 HIGH · 70+ SEVERE.**
 Sources that time out are reported as *coverage gaps*, never silently counted as
@@ -103,6 +105,21 @@ correlate with prior use, not cleanly with risk direction.
   based on repeated findings in Spamhaus's "World's Most Abused TLDs" and
   Interisle's Cybercrime Supply Chain reports. Weighted modestly (+5/+10)
   since it's a prior about the TLD in general, not a verdict on this domain.
+- **Shared-infrastructure matching never uses ASN**, only exact resolved IP
+  and exact nameserver set. Google and Cloudflare alone sit behind one ASN
+  each for millions of unrelated domains (see `app/checks/infrastructure.py`)
+  — ASN-level matching would flag a huge fraction of the internet. ASN is
+  still captured and shown for context, just not used to trigger the factor.
+  This check is also cold-start: on a fresh database it will always come back
+  empty, and gets more useful only as more domains get scanned.
+- **Live page content fetches an attacker-controlled domain**, so
+  `app/checks/live_content.py` resolves the IP itself first and refuses to
+  connect if it's private/loopback/link-local (an SSRF guard — otherwise a
+  malicious domain could point at `127.0.0.1` and use the scanner to probe
+  its own host). This is a check-then-fetch guard, not fully proof against
+  an attacker flipping DNS answers between the check and the actual
+  connection (DNS rebinding); closing that fully needs a pinned-IP
+  transport, not done here. Fine for local/trusted-network use.
 
 ## Marketplace
 

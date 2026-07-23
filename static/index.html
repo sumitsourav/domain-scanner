@@ -53,10 +53,12 @@
       <div class="card"><h2>Trademark screen</h2><div id="tm"></div></div>
     </div>
 
+    <div class="card" style="margin-top:14px"><h2>Live page content — right now, not history</h2><div id="live"></div></div>
     <div class="card" style="margin-top:14px"><h2>Prior-use history (Wayback Machine)</h2><div id="hist"></div></div>
     <div class="card" style="margin-top:14px"><h2>Certificate Transparency — prior operator footprint</h2><div id="certs"></div></div>
+    <div class="card" style="margin-top:14px"><h2>Infrastructure fingerprint</h2><div id="infra"></div></div>
 
-    <p class="note">Heuristic screening tool — not legal advice, and not a guarantee of deliverability. Blacklist data: Spamhaus, SURBL, URIBL, Barracuda, URLhaus. History: Internet Archive, crt.sh. <span id="elapsed"></span></p>
+    <p class="note">Heuristic screening tool — not legal advice, and not a guarantee of deliverability. Blacklist data: Spamhaus, SURBL, URIBL, Barracuda, URLhaus. History: Internet Archive, crt.sh. ASN: Team Cymru. <span id="elapsed"></span></p>
   </div>
 </div>
 
@@ -265,6 +267,32 @@ function render(d) {
     .map(([k, v]) => `<a href="${esc(v)}" target="_blank" rel="noopener">${esc(k)} search ↗</a>`).join('') + `</div>`;
   $('tm').innerHTML = tmHtml;
 
+  // live page content — what's there right now, not history
+  const lc = d.checks.live_content;
+  if (!lc || lc.status !== 'ok') {
+    $('live').innerHTML = `<span class="pill unknown">? ${esc((lc && lc.error) || 'live-content check failed')}</span>`;
+  } else if (!lc.has_live_site) {
+    $('live').innerHTML = `<span class="pill unknown" style="font-size:15px">— No live site</span>
+      <p class="note" style="margin-top:8px">${esc(lc.note)}</p>`;
+  } else {
+    const cats = Object.entries(lc.risky_hits || {});
+    let html = `<dl class="kv">
+        <dt>URL</dt><dd><a href="${esc(lc.final_url)}" target="_blank" rel="noopener">${esc(lc.final_url)}</a></dd>
+        <dt>Protocol</dt><dd>${lc.protocol === 'https' ? '✓ HTTPS' : '▲ HTTP only (no TLS)'}</dd>
+        ${lc.title ? `<dt>Title</dt><dd>${esc(lc.title)}</dd>` : ''}
+      </dl>`;
+    if (lc.is_parked) {
+      html += `<p class="note" style="margin-top:10px"><span class="pill unknown">— Parked</span> This looks like a parking/for-sale template, not an active site — not inherently risky, just unoccupied.</p>`;
+    }
+    if (cats.length) {
+      html += cats.map(([cat, hits]) => `<div class="cat">✕ ${esc(cat)}</div>
+        <ul class="evidence">${hits.map(s => `<li>…${esc(s)}…</li>`).join('')}</ul>`).join('');
+    } else {
+      html += `<p class="note" style="margin-top:10px"><span class="pill clean">✓</span> No spam/scam keywords found on the live page.</p>`;
+    }
+    $('live').innerHTML = html;
+  }
+
   // history
   const h = d.checks.history;
   if (h.status !== 'ok') {
@@ -321,6 +349,29 @@ function render(d) {
     }
     html += `<div class="links"><a href="${esc(c.crtsh_url)}" target="_blank" rel="noopener">Browse on crt.sh ↗</a></div>`;
     $('certs').innerHTML = html;
+  }
+
+  // infrastructure fingerprint + cross-scan shared-risk evidence
+  const inf = d.checks.infrastructure;
+  const shared = d.shared_infrastructure || [];
+  if (!inf || inf.status !== 'ok') {
+    $('infra').innerHTML = `<span class="pill unknown">? infrastructure lookup failed</span>`;
+  } else if (!inf.resolves) {
+    $('infra').innerHTML = `<span class="pill unknown" style="font-size:15px">— Does not resolve</span>
+      <p class="note" style="margin-top:8px">No A record — nothing to fingerprint.</p>`;
+  } else {
+    let html = `<dl class="kv">
+        <dt>IP</dt><dd>${esc(inf.ip)}</dd>
+        <dt>ASN</dt><dd>${inf.asn ? `AS${esc(inf.asn)} — ${esc(inf.asn_name || 'unknown')}${inf.country ? ' (' + esc(inf.country) + ')' : ''}` : '—'}</dd>
+        <dt>Nameservers</dt><dd>${inf.nameservers.length ? esc(inf.nameservers.join(', ')) : '—'}</dd>
+      </dl>`;
+    if (shared.length) {
+      html += `<div class="cat">✕ Shares infrastructure with ${shared.length} previously-scanned high-risk domain(s)</div>
+        <ul class="evidence">${shared.map(m => `<li>${esc(m.domain)} — ${esc(m.risk_verdict)} (shared: ${esc(m.shared_via.join(', '))})</li>`).join('')}</ul>`;
+    } else {
+      html += `<p class="note" style="margin-top:10px"><span class="pill clean">✓</span> No overlap with other high-risk domains scanned so far. This check only gets more useful as more domains are scanned — it's not a live threat feed, it's this tool's own accumulated history.</p>`;
+    }
+    $('infra').innerHTML = html;
   }
 
   $('elapsed').textContent = `Scan took ${d.elapsed_seconds}s.`;
